@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
-import { GaugeCircle as GameCircle, Copy, Bomb, ArrowUpDown, Eraser } from 'lucide-react';
+import { Copy, Users, Trophy, ArrowLeftRight } from 'lucide-react';
 
 const socket = io('https://backpowerfour.onrender.com');
 
@@ -14,70 +14,52 @@ const App = () => {
   const [message, setMessage] = useState('');
   const [players, setPlayers] = useState([]);
   const [winner, setWinner] = useState(null);
-  const [selectedPower, setSelectedPower] = useState(null);
   const [gravityInverted, setGravityInverted] = useState(false);
   const [playerColors, setPlayerColors] = useState({});
   const [lastMove, setLastMove] = useState(null);
-  const [powers, setPowers] = useState({
-    remove: 1,
-    explode: 1,
-    gravity: 1
-  });
 
   useEffect(() => {
-    const handleConnect = () => {
-      setPlayerId(socket.id);
-    };
+    if (!socket) return;
+    socket.on('play', ({ row, column, playerId }) => {
+      setBoard(prevBoard => {
+        const newBoard = prevBoard.map(row => [...row]);
+        newBoard[row][column] = playerId;
+        return newBoard;
+      });
+      setLastMove({ row, col: column });
+      setCurrentPlayer(prev => (prev === players[0] ? players[1] : players[0]));
+    });
+    return () => socket.off('play');
+  }, [players]);
 
+  useEffect(() => {
+    const handleConnect = () => setPlayerId(socket.id);
     const handleGameCreated = ({ roomId }) => {
       setRoomId(roomId);
       setMessage("En attente d'un autre joueur...");
       setPlayerColors({ [socket.id]: 'red' });
     };
-
     const handleStartGame = ({ players }) => {
       setGameStarted(true);
       setPlayers(players);
-      const colors = {
-        [players[0]]: 'red',
-        [players[1]]: 'yellow'
-      };
+      const colors = { [players[0]]: 'red', [players[1]]: 'yellow' };
       setPlayerColors(colors);
       setMessage(players[0] === socket.id ? "C'est votre tour" : "Tour de l'adversaire");
     };
-
     const handleUpdateBoard = ({ board, currentPlayer, gravityState }) => {
-      // Compare avec l'ancien board pour trouver le nouveau jeton
-      if (board) {
-        let foundNewToken = false;
-        for (let row = board.length - 1; row >= 0 && !foundNewToken; row--) {
-          for (let col = 0; col < board[row].length; col++) {
-            if (!lastMove || (board[row][col] !== null && (row !== lastMove.row || col !== lastMove.col))) {
-              setLastMove({ row, col });
-              foundNewToken = true;
-              break;
-            }
-          }
-        }
-      }
-      
       setBoard(board);
       setCurrentPlayer(currentPlayer);
       setGravityInverted(gravityState);
       setMessage(currentPlayer === socket.id ? "C'est votre tour" : "Tour de l'adversaire");
       checkWinner(board);
     };
-
     const handlePlayerLeft = () => {
       setMessage("L'adversaire a quitté la partie");
       setGameStarted(false);
       setBoard([]);
       resetGameState();
     };
-
-    const handleError = (error) => {
-      setMessage(error);
-    };
+    const handleError = (error) => setMessage(error);
 
     socket.on('connect', handleConnect);
     socket.on('gameCreated', handleGameCreated);
@@ -97,57 +79,17 @@ const App = () => {
   }, [lastMove]);
 
   const resetGameState = () => {
-    setPowers({
-      remove: 1,
-      explode: 1,
-      gravity: 1
-    });
-    setSelectedPower(null);
     setGravityInverted(false);
     setPlayerColors({});
     setLastMove(null);
   };
 
-  const handleCreateGame = () => {
-    socket.emit('createGame');
-  };
-
-  const handleJoinGame = () => {
-    socket.emit('joinGame', joinRoomId);
-  };
+  const handleCreateGame = () => socket.emit('createGame');
+  const handleJoinGame = () => socket.emit('joinGame', joinRoomId);
 
   const handleColumnClick = (column) => {
     if (currentPlayer === socket.id) {
-      if (selectedPower) {
-        if (powers[selectedPower] > 0) {
-          socket.emit('usePower', {
-            roomId: roomId || joinRoomId,
-            column,
-            power: selectedPower,
-            gravityState: gravityInverted
-          });
-          setPowers(prev => ({
-            ...prev,
-            [selectedPower]: prev[selectedPower] - 1
-          }));
-          setSelectedPower(null);
-        }
-      } else {
-        socket.emit('play', {
-          roomId: roomId || joinRoomId,
-          column,
-          gravityState: gravityInverted
-        });
-      }
-    }
-  };
-
-  const handlePowerSelection = (power) => {
-    alert("ok")
-
-    console.log(`Power selected: ${power}`);
-    if (currentPlayer === socket.id && powers[power] > 0) {
-      setSelectedPower(selectedPower === power ? null : power);
+      socket.emit('play', { roomId: roomId || joinRoomId, column, gravityState: gravityInverted });
     }
   };
 
@@ -173,183 +115,114 @@ const App = () => {
       for (let col = 0; col < 7; col++) {
         const player = board[row][col];
         if (player === null) continue;
-  
-        if (col + 3 < 7 && board[row][col + 1] === player && board[row][col + 2] === player && board[row][col + 3] === player) {
-          setWinner(player);
-          setMessage(player === playerId ? "Vous avez gagné !" : "L'adversaire a gagné !");
-          handleDisconnectSockets();
-          return;
-        }
-  
-        if (row + 3 < 6 && board[row + 1][col] === player && board[row + 2][col] === player && board[row + 3][col] === player) {
-          setWinner(player);
-          setMessage(player === playerId ? "Vous avez gagné !" : "L'adversaire a gagné !");
-          handleDisconnectSockets();
-          return;
-        }
-  
-        if (row + 3 < 6 && col + 3 < 7 && board[row + 1][col + 1] === player && board[row + 2][col + 2] === player && board[row + 3][col + 3] === player) {
-          setWinner(player);
-          setMessage(player === playerId ? "Vous avez gagné !" : "L'adversaire a gagné !");
-          handleDisconnectSockets();
-          return;
-        }
-  
-        if (row - 3 >= 0 && col + 3 < 7 && board[row - 1][col + 1] === player && board[row - 2][col + 2] === player && board[row - 3][col + 3] === player) {
-          setWinner(player);
-          setMessage(player === playerId ? "Vous avez gagné !" : "L'adversaire a gagné !");
-          handleDisconnectSockets();
-          return;
-        }
+        if (col + 3 < 7 && board[row][col + 1] === player && board[row][col + 2] === player && board[row][col + 3] === player) return endGame(player);
+        if (row + 3 < 6 && board[row + 1][col] === player && board[row + 2][col] === player && board[row + 3][col] === player) return endGame(player);
+        if (row + 3 < 6 && col + 3 < 7 && board[row + 1][col + 1] === player && board[row + 2][col + 2] === player && board[row + 3][col + 3] === player) return endGame(player);
+        if (row - 3 >= 0 && col + 3 < 7 && board[row - 1][col + 1] === player && board[row - 2][col + 2] === player && board[row - 3][col + 3] === player) return endGame(player);
       }
     }
-  
     if (board.every(row => row.every(cell => cell !== null))) {
       setMessage("Match nul !");
       handleDisconnectSockets();
     }
   };
 
+  const endGame = (winnerId) => {
+    setWinner(winnerId);
+    setMessage(winnerId === playerId ? "🎉 Vous avez gagné !" : "😢 L'adversaire a gagné !");
+    setTimeout(() => {
+      handleDisconnectSockets();
+    }, 4000);
+  };
+
   const getCellColor = (cell) => {
-    if (cell === null) return 'bg-white hover:bg-gray-100';
+    if (cell === null) return 'bg-white/90 hover:bg-white';
     return playerColors[cell] === 'red' ? 'bg-red-500' : 'bg-yellow-500';
   };
 
   const renderCell = (cell, rowIndex, colIndex) => {
     const isLastMove = lastMove && lastMove.row === rowIndex && lastMove.col === colIndex;
-    
     return (
       <div
         key={`${rowIndex}-${colIndex}`}
         onClick={() => handleColumnClick(colIndex)}
-        className={`
-          w-16 h-16 
-          rounded-full 
-          border-4 
-          border-blue-200 
-          cursor-pointer 
-          transition-all
-          ${getCellColor(cell)}
-          ${selectedPower === 'remove' ? 'hover:border-red-500' : ''}
-          ${selectedPower === 'explode' ? 'hover:border-orange-500' : ''}
-          ${selectedPower === 'gravity' ? 'hover:border-purple-500' : ''}
-          ${isLastMove && cell !== null ? 'token-drop' : ''}
-          transform ${isLastMove ? 'scale-110' : ''}  // Optionnel : ajouter un effet visuel pour la dernière cellule
-        `}
+        className={`w-14 h-14 md:w-16 md:h-16 rounded-full border-4 border-blue-300/50 cursor-pointer transition-all transform hover:scale-105 
+          ${getCellColor(cell)} 
+          ${isLastMove && cell !== null ? (gravityInverted ? 'token-drop-inverted' : 'token-drop') : ''}
+          shadow-inner`}
       />
     );
   };
-  
-  const renderPowerButton = (power, icon, color, label) => (
-    <button
-      onClick={() => handlePowerSelection(power)}
-      disabled={powers[power] === 0 || currentPlayer !== playerId}
-      className={`
-        flex items-center gap-2 px-4 py-2 rounded-lg font-semibold
-        ${selectedPower === power ? `${color} text-white` : 'bg-gray-200'}
-        ${powers[power] === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90'}
-        transition-colors duration-200
-      `}
-    >
-      {icon}
-      <span>{label} ({powers[power]})</span>
-    </button>
-  );
-
-  const renderPowers = () => (
-    <div className="flex gap-4 justify-center mt-4">
-      {renderPowerButton('remove', <Eraser className="w-5 h-5" />, 'bg-red-500', 'Supprimer')}
-      {renderPowerButton('explode', <Bomb className="w-5 h-5" />, 'bg-orange-500', 'Exploser')}
-      {renderPowerButton('gravity', <ArrowUpDown className="w-5 h-5" />, 'bg-purple-500', 'Inverser')}
-    </div>
-  );
-
-  const renderLobby = () => (
-    <div className="bg-white rounded-lg p-8 shadow-lg">
-      <div className="space-y-6">
-        <div className="text-center">
-          <button
-            onClick={handleCreateGame}
-            className="bg-blue-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-600 transition-colors"
-          >
-            Créer une partie
-          </button>
-        </div>
-
-        {roomId && (
-          <div className="flex items-center justify-center space-x-4">
-            <span className="text-gray-600">Code de la partie : {roomId}</span>
-            <button
-              onClick={handleCopyRoomId}
-              className="text-blue-500 hover:text-blue-600"
-            >
-              <Copy className="w-5 h-5" />
-            </button>
-          </div>
-        )}
-
-        <div className="flex items-center justify-center space-x-4">
-          <input
-            type="text"
-            value={joinRoomId}
-            onChange={(e) => setJoinRoomId(e.target.value)}
-            placeholder="Entrez le code de la partie"
-            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            onClick={handleJoinGame}
-            className="bg-green-500 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-600 transition-colors"
-          >
-            Rejoindre
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderGame = () => (
-    <div className="bg-white rounded-lg p-8 shadow-lg">
-      <div className={`grid grid-cols-7 gap-2 mb-8 ${gravityInverted ? 'rotate-180' : ''} transition-transform duration-500`}>
-        {board.map((row, rowIndex) =>
-          row.map((cell, colIndex) => renderCell(cell, rowIndex, colIndex))
-        )}
-      </div>
-      {renderPowers()}
-      <div className="text-center text-lg font-semibold text-gray-700 mt-4">
-        {message}
-      </div>
-      <div className="mt-4 text-center text-lg">
-        <h3 className="font-semibold">Joueurs dans la partie:</h3>
-        <ul className="text-gray-600">
-          {players.map((player, index) => (
-            <li key={index} className="flex items-center justify-center gap-2">
-              <span className={`w-4 h-4 rounded-full ${playerColors[player] === 'red' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
-              {player === playerId ? 'Vous' : 'Adversaire'}
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div className="mt-4 text-center">
-        <button
-          onClick={handleDisconnectSockets}
-          className="bg-red-500 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-600 transition-colors"
-        >
-          Quitter la partie
-        </button>
-      </div>
-    </div>
-  );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-center mb-8">
-          <GameCircle className="w-8 h-8 text-white mr-2" />
-          <h1 className="text-4xl font-bold text-white">Puissance 4</h1>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 flex flex-col items-center justify-center p-4">
+      <h1 className="text-4xl md:text-5xl font-bold mb-8 text-white tracking-tight flex items-center gap-3">
+        <Trophy className="w-8 h-8 md:w-10 md:h-10" />
+        Puissance 4
+      </h1>
+      
+      {!gameStarted ? (
+        <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-8 shadow-xl space-y-6 w-full max-w-md">
+          <button 
+            onClick={handleCreateGame} 
+            className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-4 rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105 flex items-center justify-center gap-2"
+          >
+            <Users className="w-5 h-5" />
+            Créer une partie
+          </button>
+          
+          {roomId && (
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+              <span className="text-gray-700 font-medium">Code : {roomId}</span>
+              <button 
+                onClick={handleCopyRoomId} 
+                className="text-blue-500 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition-colors"
+              >
+                <Copy className="w-5 h-5" />
+              </button>
+            </div>
+          )}
 
-        {!gameStarted ? renderLobby() : renderGame()}
-      </div>
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={joinRoomId}
+              onChange={(e) => setJoinRoomId(e.target.value)}
+              placeholder="Entrez le code de la partie"
+              className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <button 
+              onClick={handleJoinGame} 
+              className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-4 rounded-xl font-semibold hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105"
+            >
+              Rejoindre la partie
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="flex items-center justify-center gap-3">
+            <div className={`px-6 py-3 rounded-xl ${currentPlayer === playerId ? 'bg-green-500' : 'bg-white/90'} text-center font-medium text-lg transition-colors`}>
+              {message}
+            </div>
+            {gravityInverted && (
+              <ArrowLeftRight className="w-6 h-6 text-white animate-pulse" />
+            )}
+          </div>
+          
+          {winner && (
+            <div className="text-4xl font-bold text-white winner-animation text-center p-4 bg-black/20 backdrop-blur-sm rounded-xl">
+              {winner === playerId ? '🎉 Victoire !' : '😢 Défaite !'}
+            </div>
+          )}
+          
+          <div className="grid grid-cols-7 gap-2 bg-blue-500/90 backdrop-blur-sm p-4 rounded-xl shadow-2xl">
+            {board.map((row, rowIndex) =>
+              row.map((cell, colIndex) => renderCell(cell, rowIndex, colIndex))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
